@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard ข้อร้องเรียน รพ.ศรีสังวรสุโขทัย</title>
+    
+    <!-- ฟอนต์และไลบรารีที่จำเป็น -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Prompt', 'sans-serif'] },
+                    colors: {
+                        primary: '#1e3a8a', // Royal Blue
+                        secondary: '#d97706', // Gold
+                        accent: '#f59e0b',
+                        pastelPink: '#fbcfe8',
+                        pastelPinkDark: '#f472b6',
+                        pastelBlue: '#bae6fd',
+                        pastelBlueDark: '#3b82f6',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #f0f4f8; }
+        .card-3d {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+        }
+        .card-3d:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(30, 58, 138, 0.15);
+        }
+        .gradient-text {
+            background: linear-gradient(to right, #1e3a8a, #d97706);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #globalChartOverlay, #changePasswordModal { backdrop-filter: blur(5px); background-color: rgba(0, 0, 0, 0.5); }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        /* สไตล์สำหรับการพิมพ์ของ AI */
+        .ai-typing { border-left: 3px solid #d97706; padding-left: 10px; }
+
+        /* Toast Notification */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #1e293b;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 12px 24px;
+            position: fixed;
+            z-index: 999;
+            right: 30px;
+            bottom: 30px;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.5s, bottom 0.5s;
+            border-left: 4px solid #10b981;
+        }
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+            bottom: 50px;
+        }
+    </style>
+</head>
+<body class="text-slate-700 min-h-screen pb-10 font-sans relative">
+
+    <!-- Toast Notification -->
+    <div id="toast"><i class="fa-solid fa-floppy-disk mr-2"></i> บันทึกข้อมูลล่าสุดเรียบร้อย</div>
+
+    <!-- Global Chart Overlay (Donut Chart กลางจอ) -->
+    <div id="globalChartOverlay" class="fixed inset-0 z-[100] hidden items-center justify-center fade-in" onclick="if(event.target === this) hideGlobalChart()">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-4xl w-full border-4 border-secondary relative mx-4 flex flex-col md:flex-row gap-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+            
+            <!-- ปุ่มปิด -->
+            <button onclick="hideGlobalChart()" class="absolute top-4 right-4 text-slate-400 hover:text-red-500 transition text-2xl z-10">
+                <i class="fa-solid fa-circle-xmark"></i>
+            </button>
+
+            <!-- ฝั่งซ้าย: กราฟ Donut -->
+            <div class="w-full md:w-5/12 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-slate-100 pb-6 md:pb-0 md:pr-6">
+                <h3 id="overlayTitle" class="text-xl font-bold text-center mb-4 text-primary">สัดส่วนหน่วยงาน</h3>
+                <div class="h-64 w-full relative">
+                    <canvas id="overlayCanvas"></canvas>
+                </div>
+            </div>
+
+            <!-- ฝั่งขวา: AI Summary -->
+            <div class="w-full md:w-7/12 flex flex-col">
+                <div class="flex items-center gap-2 mb-4">
+                    <div class="bg-gradient-to-r from-purple-600 to-pink-500 text-white px-3 py-1 rounded-lg text-sm font-bold shadow-sm">
+                        <i class="fa-solid fa-robot mr-1"></i> AI Smart Analysis
+                    </div>
+                </div>
+                
+                <div id="aiContent" class="flex-grow bg-slate-50 rounded-2xl p-5 border border-slate-200 text-sm text-slate-600 leading-relaxed overflow-y-auto min-h-[250px] max-h-[350px]">
+                    <div class="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                        <i class="fa-solid fa-wand-magic-sparkles text-3xl opacity-50"></i>
+                        <p class="italic">คลิกปุ่ม "วิเคราะห์ด้วย AI" เพื่อสรุปข้อมูลดิบ</p>
+                    </div>
+                </div>
+
+                <button id="aiBtn" onclick="generateAISummary()" class="mt-4 w-full bg-secondary hover:bg-yellow-600 text-white py-3 rounded-xl font-bold shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-bolt"></i> วิเคราะห์ข้อมูลดิบของหมวดนี้
+                </button>
+            </div>
+        </div>
+        <div class="absolute bottom-10 text-white/70 text-sm">กด ESC เพื่อปิด</div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="fixed inset-0 z-[110] hidden items-center justify-center fade-in">
+        <div class="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 w-96 relative">
+            <button onclick="hideChangePasswordModal()" class="absolute top-4 right-4 text-slate-400 hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="font-bold text-primary mb-4 text-center text-lg"><i class="fa-solid fa-key mr-2"></i>ตั้งค่าบัญชี Admin</h3>
+            
+            <div class="space-y-4">
+                <div class="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                    <label class="block text-xs font-bold text-yellow-700 mb-1">รหัสรีเซ็ต (Reset Code) *จำเป็น</label>
+                    <input type="password" id="resetCodeInput" class="w-full p-2 border border-yellow-300 rounded bg-white text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400" placeholder="ใส่รหัสยืนยันตัวตน">
+                </div>
+                <hr class="border-slate-100">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">ชื่อผู้ใช้ใหม่ (New Username)</label>
+                    <input type="text" id="newUsernameInput" class="w-full p-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="กำหนดชื่อผู้ใช้ใหม่">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">รหัสผ่านใหม่ (New Password)</label>
+                    <input type="password" id="newPasswordInput" class="w-full p-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary" placeholder="กำหนดรหัสผ่านใหม่">
+                </div>
+                <button onclick="confirmChangePassword()" class="w-full bg-primary text-white py-2 rounded-lg font-bold hover:bg-blue-800 transition mt-2 shadow-md">บันทึกการเปลี่ยนแปลง</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white shadow-lg sticky top-0 z-50 border-b-2 border-secondary">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+            <div class="flex flex-col lg:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-4">
+                    <div class="bg-white p-1 rounded-xl shadow-sm border border-slate-100 overflow-hidden h-16 w-16 flex items-center justify-center">
+                        <img src="https://drive.google.com/thumbnail?id=152jSCN-fbUj12zxVeTGN14hQnCchzITM&sz=w200" alt="รพ.ศรีสังวรสุโขทัย" class="h-full w-full object-contain">
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold gradient-text uppercase tracking-wide">ข้อมูลข้อร้องเรียน รพ.ศรีสังวรสุโขทัย</h1>
+                        <p class="text-xs text-slate-500 font-medium">คณะกรรมการจัดการข้อร้องเรียนและข้อเสนอแนะ</p>
+                    </div>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="flex items-center bg-slate-100 rounded-lg border border-slate-200 overflow-hidden">
+                        <input type="text" id="sheetUrl" placeholder="ID หรือลิงก์ Google Sheet" class="px-3 py-2 text-xs w-40 focus:outline-none bg-transparent">
+                        <button onclick="importFromGoogleSheet()" class="bg-green-600 text-white px-3 py-2 text-xs font-bold hover:bg-green-700 transition">เชื่อมต่อ</button>
+                    </div>
+                    <label class="cursor-pointer bg-primary text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-800 transition font-medium text-xs flex items-center gap-2">
+                        <i class="fa-solid fa-file-import"></i> นำเข้า Excel/CSV
+                        <input type="file" id="fileInput" accept=".csv, .xlsx, .xls" class="hidden" onchange="handleFileSelect(event)">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        
+        <!-- ตัวกรองข้อมูล -->
+        <section class="bg-white rounded-2xl p-6 shadow-md border-l-8 border-primary card-3d cursor-default">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="block text-[10px] font-bold text-primary mb-1">วันที่เริ่มต้น</label><input type="date" id="startDate" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs focus:ring-2 focus:ring-primary"></div>
+                    <div><label class="block text-[10px] font-bold text-primary mb-1">วันที่สิ้นสุด</label><input type="date" id="endDate" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs focus:ring-2 focus:ring-primary"></div>
+                </div>
+                <div><label class="block text-[10px] font-bold text-primary mb-1">แผนก</label><select id="filterDept" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs focus:ring-2 focus:ring-secondary"><option value="">ทั้งหมด</option></select></div>
+                <div><label class="block text-[10px] font-bold text-primary mb-1">ประเภทการแจ้ง</label><select id="filterType" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-2 text-xs focus:ring-2 focus:ring-secondary"><option value="">ทั้งหมด</option></select></div>
+                <div class="flex items-end gap-2">
+                    <button onclick="resetFilters()" class="flex-1 bg-slate-200 text-slate-600 py-2 rounded-lg text-xs font-bold hover:bg-slate-300 transition">ล้างตัวกรอง</button>
+                    <button onclick="exportToExcel()" class="flex-1 bg-green-600 text-white py-2 rounded-lg text-xs font-bold hover:bg-green-700 transition shadow-sm flex items-center justify-center gap-1 group relative">
+                        <i class="fa-solid fa-file-excel"></i> Export
+                        <!-- Tooltip -->
+                        <span class="absolute bottom-full mb-2 hidden group-hover:block w-32 bg-gray-800 text-white text-[10px] rounded p-1 text-center">ต้องเป็น Admin</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- KPI Cards 2 คอลัมน์ 3 แถว -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Quality -->
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelPinkDark flex flex-col justify-between" onclick="showGlobalChart('qualPos', 'คุณภาพบริการ (เชิงบวก)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">คุณภาพบริการ (บวก)</p><h3 id="kpiQualPos" class="text-4xl font-bold text-pastelPinkDark mt-1">0</h3></div><i class="fa-solid fa-star text-2xl text-pink-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelBlueDark flex flex-col justify-between" onclick="showGlobalChart('qualNeg', 'คุณภาพบริการ (เชิงลบ)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">คุณภาพบริการ (ลบ)</p><h3 id="kpiQualNeg" class="text-4xl font-bold text-pastelBlueDark mt-1">0</h3></div><i class="fa-solid fa-star-half text-2xl text-blue-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+            <!-- Behavior -->
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelPinkDark flex flex-col justify-between" onclick="showGlobalChart('behavPos', 'พฤติกรรมบริการ (เชิงบวก)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">พฤติกรรมบริการ (บวก)</p><h3 id="kpiBehavPos" class="text-4xl font-bold text-pastelPinkDark mt-1">0</h3></div><i class="fa-solid fa-heart text-2xl text-pink-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelBlueDark flex flex-col justify-between" onclick="showGlobalChart('behavNeg', 'พฤติกรรมบริการ (เชิงลบ)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">พฤติกรรมบริการ (ลบ)</p><h3 id="kpiBehavNeg" class="text-4xl font-bold text-pastelBlueDark mt-1">0</h3></div><i class="fa-solid fa-user-injured text-2xl text-blue-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+            <!-- Environment -->
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelPinkDark flex flex-col justify-between" onclick="showGlobalChart('envPos', 'สวล./อาคาร (เชิงบวก)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">สวล./อาคาร (บวก)</p><h3 id="kpiEnvPos" class="text-4xl font-bold text-pastelPinkDark mt-1">0</h3></div><i class="fa-solid fa-tree text-2xl text-pink-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+            <div class="bg-white rounded-2xl p-6 h-36 card-3d border-t-4 border-pastelBlueDark flex flex-col justify-between" onclick="showGlobalChart('envNeg', 'สวล./อาคาร (เชิงลบ)')">
+                <div class="flex justify-between items-start"><div><p class="text-slate-500 text-sm">สวล./อาคาร (ลบ)</p><h3 id="kpiEnvNeg" class="text-4xl font-bold text-pastelBlueDark mt-1">0</h3></div><i class="fa-solid fa-triangle-exclamation text-2xl text-blue-100"></i></div>
+                <p class="text-[10px] text-slate-300 text-right italic">คลิกเพื่อวิเคราะห์ข้อมูล</p>
+            </div>
+        </section>
+
+        <!-- Main Charts -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white rounded-2xl p-6 shadow-lg card-3d cursor-default">
+                <h3 class="text-lg font-bold text-slate-700 mb-4 border-l-4 border-secondary pl-3">สรุปตามประเภทการแจ้ง</h3>
+                <div class="h-96 relative"><canvas id="typeChart"></canvas></div>
+            </div>
+            <div class="bg-white rounded-2xl p-6 shadow-lg card-3d cursor-default">
+                <h3 class="text-lg font-bold text-slate-700 mb-4 border-l-4 border-primary pl-3">ปริมาณเรื่องแยกตามแผนก (+/-)</h3>
+                <div class="h-96 relative"><canvas id="deptChart"></canvas></div>
+            </div>
+        </section>
+
+        <!-- Admin Area -->
+        <section class="mt-12">
+            <div id="loginSection" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-200 text-center">
+                <h3 class="font-bold text-primary mb-6"><i class="fa-solid fa-user-shield mr-2"></i>Admin Login</h3>
+                
+                <div class="space-y-3 mb-6">
+                    <input type="text" id="username" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-primary focus:outline-none text-center" placeholder="ชื่อผู้ใช้ (Username)">
+                    <input type="password" id="password" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-primary focus:outline-none text-center" placeholder="รหัสผ่าน (Password)">
+                </div>
+                
+                <button onclick="checkLogin()" class="w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-blue-800 transition shadow-lg transform active:scale-95">ยืนยันตัวตน</button>
+                
+                <div class="mt-4 pt-4 border-t border-slate-100">
+                    <button onclick="showChangePasswordModal()" class="text-xs text-slate-400 hover:text-secondary underline transition">ตั้งค่าบัญชี / รีเซ็ตรหัสผ่าน (สำหรับผู้ดูแลระบบ)</button>
+                </div>
+            </div>
+
+            <div id="adminPanel" class="hidden bg-white rounded-3xl shadow-2xl overflow-hidden border-t-8 border-primary">
+                <div class="p-6 bg-slate-50 border-b flex justify-between items-center">
+                    <h3 class="font-bold text-xl text-primary">รายละเอียดข้อมูลข้อร้องเรียน (Raw Data)</h3>
+                    <div class="flex items-center gap-4">
+                        <button onclick="resetToDemoData()" class="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-full hover:bg-red-200 transition" title="ล้างข้อมูลที่บันทึกไว้และกลับไปใช้ข้อมูลตัวอย่าง"><i class="fa-solid fa-trash-can mr-1"></i> ล้างข้อมูลที่บันทึก</button>
+                        <button onclick="logout()" class="text-red-500 font-bold hover:underline">ออกจากระบบ</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto p-4">
+                    <table class="w-full text-sm text-left divide-y divide-slate-200">
+                        <thead class="bg-slate-100 text-primary uppercase font-bold text-xs">
+                            <tr>
+                                <th class="p-3">ID</th>
+                                <th class="p-3">วันที่เกิดเหตุ</th>
+                                <th class="p-3">แผนก</th>
+                                <th class="p-3">ประเภทแจ้ง</th>
+                                <th class="p-3 w-1/3">รายละเอียดเนื้อหา</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="text-center text-slate-400 text-xs py-8 border-t border-slate-200 mx-8">
+        &copy; 2026 Srisangworn Sukhothai Hospital | All Rights Reserved
+    </footer>
+
+    <script>
+        Chart.register(ChartDataLabels);
+        let allData = [];
+        let filteredData = [];
+        let typeChartInstance, deptChartInstance, globalChartInstance, currentKpiKey;
+        let isAdminLoggedIn = false; 
+
+        let adminUser = localStorage.getItem('ssh_admin_user') || 'admin';
+        let adminPass = localStorage.getItem('ssh_admin_pass') || '122244444';
+        const MASTER_RESET_CODE = '17092491';
+
+        // --- Demo Data ---
+        const mockData = [
+            { "หมายเลขข้อร้องเรียน": "68-310", "วันที่เกิดเหตุ": "2025-09-26", "แผนก": "งานแพทย์แผนไทย", "ประเภทการแจ้ง": "พฤติกรรม บริการลบ", "ร้องเรียน": "เจ้าหน้าที่พูดคุยกันเสียงดังเกินไปขณะปฏิบัติหน้าที่" },
+            { "หมายเลขข้อร้องเรียน": "68-309", "วันที่เกิดเหตุ": "2025-09-09", "แผนก": "งานคลินิกพิเศษ", "ประเภทการแจ้ง": "สวล/อาคาร สถานที่ลบ", "ร้องเรียน": "เครื่องวัดความดันไม่มีกระดาษ ผู้สูงอายุใช้งานลำบาก" },
+            { "หมายเลขข้อร้องเรียน": "65-004", "วันที่เกิดเหตุ": "2022-10-05", "แผนก": "อายุรกรรมชาย", "ประเภทการแจ้ง": "พฤติกรรม บริการบวก", "ชื่นชม": "พยาบาลดูแลดีมาก พูดจาไพเราะ เอาใจใส่ดีเยี่ยม" },
+            { "หมายเลขข้อร้องเรียน": "65-008", "วันที่เกิดเหตุ": "2022-10-06", "แผนก": "อายุรกรรมหญิง", "ประเภทการแจ้ง": "คุณภาพ บริการบวก", "ชื่นชม": "คุณหมอเก่งมาก รักษาหายไว พยาบาลน่ารัก" },
+            { "หมายเลขข้อร้องเรียน": "65-006", "วันที่เกิดเหตุ": "2022-09-30", "แผนก": "งานผู้ป่วยนอก", "ประเภทการแจ้ง": "พฤติกรรม บริการลบ", "ร้องเรียน": "พยาบาลซักประวัติน้ำเสียงไม่สุภาพ พูดจาไม่เพราะ" },
+            { "หมายเลขข้อร้องเรียน": "66-022", "วันที่เกิดเหตุ": "2023-02-20", "แผนก": "เภสัชกรรม", "ประเภทการแจ้ง": "ความรวดเร็ว บริการลบ", "ร้องเรียน": "รอรับยานานมาก เจ้าหน้าที่ทำงานช้า" }
+        ];
+
+        // --- Data Persistence Helper ---
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerHTML = `<i class="fa-solid fa-floppy-disk mr-2"></i> ${message}`;
+            toast.className = "show";
+            setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+
+        // --- File Import ---
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            const extension = file.name.split('.').pop().toLowerCase();
+            if (extension === 'csv') {
+                Papa.parse(file, { header: true, skipEmptyLines: true, complete: res => processData(res.data, true) });
+            } else {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    const workbook = XLSX.read(e.target.result, { type: 'binary' });
+                    const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                    processData(json, true);
+                };
+                reader.readAsBinaryString(file);
+            }
+        }
+
+        async function importFromGoogleSheet() {
+            const urlInput = document.getElementById('sheetUrl').value;
+            const match = urlInput.match(/\/d\/(.*?)(\/|$)/);
+            const sheetId = match ? match[1] : urlInput;
+            if (!sheetId) return;
+            try {
+                const response = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`);
+                const csvText = await response.text();
+                Papa.parse(csvText, { header: true, skipEmptyLines: true, complete: res => processData(res.data, true) });
+            } catch (err) { alert("ล้มเหลว: โปรดตั้งค่า Sheet ให้เป็น 'ทุกคนที่มีลิงก์อ่านได้'"); }
+        }
+
+        function processData(data, save = false) {
+            allData = data.map(row => {
+                const clean = {};
+                for (let k in row) clean[k.trim()] = row[k];
+                return clean;
+            });
+
+            if (save) {
+                try {
+                    localStorage.setItem('ssh_dashboard_data', JSON.stringify(allData));
+                    showToast("นำเข้าและบันทึกข้อมูลเรียบร้อยแล้ว");
+                } catch(e) {
+                    console.error("Storage full", e);
+                    alert("ไม่สามารถบันทึกข้อมูลลงเครื่องได้ (ไฟล์ใหญ่อาจเกินขีดจำกัด)");
+                }
+            }
+
+            populateOptions('filterDept', 'แผนก');
+            populateOptions('filterType', 'ประเภทการแจ้ง');
+            applyFilters();
+        }
+
+        // --- Reset Data ---
+        function resetToDemoData() {
+            if(confirm("คุณแน่ใจหรือไม่ที่จะล้างข้อมูลที่นำเข้าทั้งหมด และกลับไปใช้ข้อมูลตัวอย่าง?")) {
+                localStorage.removeItem('ssh_dashboard_data');
+                processData(mockData, false);
+                alert("ล้างข้อมูลเรียบร้อย");
+            }
+        }
+
+        function populateOptions(id, key) {
+            const select = document.getElementById(id);
+            const vals = [...new Set(allData.map(d => d[key]?.trim()).filter(Boolean))].sort();
+            select.innerHTML = '<option value="">ทั้งหมด</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+        }
+
+        function classify(d) {
+            const type = (d['ประเภทการแจ้ง'] || "").toLowerCase();
+            const praise = (d['ชื่นชม'] || "").toLowerCase();
+            const comp = (d['ร้องเรียน'] || "").toLowerCase();
+            let isPos = type.includes('บวก') || type.includes('ชม') || (praise.length > 2 && praise !== '-');
+            let isNeg = type.includes('ลบ') || type.includes('ร้อง') || (comp.length > 2 && comp !== '-');
+            let cat = "อื่นๆ";
+            if (type.includes('คุณภาพ')) cat = "คุณภาพบริการ";
+            else if (type.includes('พฤติกรรม')) cat = "พฤติกรรมบริการ";
+            else if (type.includes('สวล') || type.includes('อาคาร') || type.includes('สถานที่')) cat = "สวล./อาคาร";
+            const keysMap = { "คุณภาพบริการ": ['qualPos', 'qualNeg'], "พฤติกรรมบริการ": ['behavPos', 'behavNeg'], "สวล./อาคาร": ['envPos', 'envNeg'] };
+            let finalKey = 'other';
+            if (keysMap[cat]) finalKey = isPos ? keysMap[cat][0] : (isNeg ? keysMap[cat][1] : 'other');
+            return { key: finalKey, label: `${cat} (${isPos ? 'บวก' : 'ลบ'})`, isPos, catName: cat };
+        }
+
+        function applyFilters() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const dept = document.getElementById('filterDept').value;
+            const type = document.getElementById('filterType').value;
+            filteredData = allData.filter(d => {
+                const dt = d['วันที่เกิดเหตุ'] || '';
+                return (!start || dt >= start) && (!end || dt <= end) && (!dept || d['แผนก'] === dept) && (!type || d['ประเภทการแจ้ง'] === type);
+            });
+            updateUI();
+        }
+
+        function resetFilters() {
+            document.getElementById('startDate').value=''; document.getElementById('endDate').value=''; 
+            document.getElementById('filterDept').value=''; document.getElementById('filterType').value=''; 
+            applyFilters();
+        }
+
+        function updateUI() {
+            let kpis = { qualPos: 0, qualNeg: 0, behavPos: 0, behavNeg: 0, envPos: 0, envNeg: 0 };
+            const typeCounts = {}, deptStats = {};
+            filteredData.forEach(d => {
+                const res = classify(d);
+                if (kpis.hasOwnProperty(res.key)) kpis[res.key]++;
+                typeCounts[res.label] = (typeCounts[res.label] || 0) + 1;
+                const dep = d['แผนก'] || 'ไม่ระบุ';
+                if (!deptStats[dep]) deptStats[dep] = { pos: 0, neg: 0 };
+                res.isPos ? deptStats[dep].pos++ : deptStats[dep].neg++;
+            });
+            for (let k in kpis) document.getElementById('kpi' + k.charAt(0).toUpperCase() + k.slice(1)).innerText = kpis[k];
+            renderCharts(typeCounts, deptStats);
+            if (!document.getElementById('adminPanel').classList.contains('hidden')) renderTable();
+        }
+
+        function exportToExcel() {
+            if (!isAdminLoggedIn) {
+                alert("สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบ Admin เพื่อส่งออกข้อมูล (Admin Login Required)");
+                document.getElementById('loginSection').scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            if (!filteredData || filteredData.length === 0) {
+                alert("ไม่มีข้อมูลสำหรับส่งออก (No data to export)");
+                return;
+            }
+            const exportData = filteredData.map(d => ({
+                "ID": d['หมายเลขข้อร้องเรียน'] || '-',
+                "วันที่เกิดเหตุ": d['วันที่เกิดเหตุ'] || '-',
+                "แผนก": d['แผนก'] || '-',
+                "ประเภทการแจ้ง": d['ประเภทการแจ้ง'] || '-',
+                "รายละเอียด (ร้องเรียน/ชื่นชม)": d['ร้องเรียน'] || d['ชื่นชม'] || '-',
+                "กลุ่มงานตอบ": d['กลุ่มงานตอบ'] || '-'
+            }));
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Complaint_Data");
+            const dateStr = new Date().toISOString().slice(0,10);
+            XLSX.writeFile(wb, `Srisangworn_Complaint_Data_${dateStr}.xlsx`);
+        }
+
+        function renderCharts(typeData, deptData) {
+            if (typeChartInstance) typeChartInstance.destroy();
+            typeChartInstance = new Chart(document.getElementById('typeChart'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(typeData),
+                    datasets: [{
+                        data: Object.values(typeData),
+                        backgroundColor: Object.keys(typeData).map(l => l.includes('บวก') ? '#f472b6' : '#3b82f6'),
+                        borderRadius: 8
+                    }]
+                },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+            const sortedDepts = Object.entries(deptData).sort((a,b) => (b[1].pos + b[1].neg) - (a[1].pos + a[1].neg)).slice(0, 10);
+            if (deptChartInstance) deptChartInstance.destroy();
+            deptChartInstance = new Chart(document.getElementById('deptChart'), {
+                type: 'bar',
+                data: {
+                    labels: sortedDepts.map(x => x[0]),
+                    datasets: [
+                        { label: 'เชิงบวก', data: sortedDepts.map(x => x[1].pos), backgroundColor: '#f472b6', stack: 's1' },
+                        { label: 'เชิงลบ', data: sortedDepts.map(x => -x[1].neg), backgroundColor: '#3b82f6', stack: 's1' }
+                    ]
+                },
+                options: { 
+                    responsive: true, maintainAspectRatio: false, 
+                    scales: { y: { ticks: { callback: v => Math.abs(v) } } },
+                    plugins: { 
+                        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${Math.abs(c.raw)}` } },
+                        datalabels: { color: '#333', font: { weight: 'bold' }, formatter: v => v === 0 ? '' : Math.abs(v) }
+                    }
+                }
+            });
+        }
+
+        function showGlobalChart(key, title) {
+            currentKpiKey = key;
+            const target = filteredData.filter(d => classify(d).key === key);
+            const deptCounts = {};
+            target.forEach(d => { deptCounts[d['แผนก'] || 'ไม่ระบุ'] = (deptCounts[d['แผนก'] || 'ไม่ระบุ'] || 0) + 1; });
+            const topStats = Object.entries(deptCounts).sort((a,b) => b[1]-a[1]).slice(0,8);
+            document.getElementById('overlayTitle').innerText = title;
+            document.getElementById('globalChartOverlay').classList.remove('hidden');
+            document.getElementById('globalChartOverlay').classList.add('flex');
+            if (globalChartInstance) globalChartInstance.destroy();
+            globalChartInstance = new Chart(document.getElementById('overlayCanvas'), {
+                type: 'doughnut',
+                data: {
+                    labels: topStats.map(x => x[0]),
+                    datasets: [{ 
+                        data: topStats.map(x => x[1]), 
+                        backgroundColor: ['#e60049', '#0bb4ff', '#50e991', '#e6d800', '#9b19f5', '#ffa300', '#dc0ab4', '#b3d4ff'] 
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { position: 'right', labels: { font: { family: 'Prompt', size: 10 } } },
+                        datalabels: { formatter: (v, ctx) => {
+                            const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                            return ((v / sum) * 100).toFixed(0) + "%";
+                        }, color: '#fff', font: { weight: 'bold', size: 10 } }
+                    },
+                    cutout: '65%'
+                }
+            });
+        }
+
+        function hideGlobalChart() { 
+            document.getElementById('globalChartOverlay').classList.add('hidden'); 
+            document.getElementById('globalChartOverlay').classList.remove('flex');
+        }
+
+        function generateAISummary() {
+            const ai = document.getElementById('aiContent');
+            ai.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><i class="fa-solid fa-spinner fa-spin text-primary text-3xl mb-2"></i><p>กำลังอ่านข้อมูลดิบและวิเคราะห์ประเด็น...</p></div>';
+            setTimeout(() => {
+                const target = filteredData.filter(d => classify(d).key === currentKpiKey);
+                if (!target.length) return ai.innerHTML = "<p class='text-center mt-10'>ไม่พบข้อมูลวิเคราะห์</p>";
+                const stats = {};
+                target.forEach(d => { const dep = d['แผนก'] || 'ไม่ระบุ'; stats[dep] = (stats[dep] || 0) + 1; });
+                const sorted = Object.entries(stats).sort((a,b) => b[1]-a[1]);
+                let text = `<div class="space-y-4 ai-typing">`;
+                text += `<p class="font-bold text-primary underline">สรุปประเด็นสำคัญประจำหมวด</p>`;
+                sorted.slice(0, 2).forEach(([name, count], idx) => {
+                    const row = target.find(r => r['แผนก'] === name);
+                    const rawMsg = (row['ร้องเรียน'] || row['ชื่นชม'] || "").toLowerCase();
+                    let insight = "โดดเด่นในภาพรวมการบริการ";
+                    if(rawMsg.includes("พูด")) insight = "ควรปรับปรุงเรื่องน้ำเสียงและถ้อยคำในการสื่อสารให้สุภาพยิ่งขึ้น";
+                    if(rawMsg.includes("ช้า") || rawMsg.includes("นาน")) insight = "ควรปรับปรุงระบบการทำงานเพื่อลดระยะเวลารอคอยของผู้รับบริการ";
+                    if(rawMsg.includes("ดีมาก") || rawMsg.includes("ขอบคุณ")) insight = "โดดเด่นเรื่องความใส่ใจและจริยธรรมในการดูแลผู้ป่วยอย่างดีเยี่ยม";
+                    if(rawMsg.includes("ร้อน") || rawMsg.includes("สกปรก")) insight = "ควรปรับปรุงความสะอาดและสภาพแวดล้อมให้พร้อมใช้งานเสมอ";
+                    text += `<div><p class="font-bold text-secondary">อันดับที่ ${idx+1}: ${name} (${count} เรื่อง)</p>`;
+                    text += `<p class="text-slate-500 italic mt-1">• ${insight}</p></div>`;
+                });
+                text += `<p class="text-[10px] text-slate-400 mt-4 border-t pt-2">วิเคราะห์จากฐานข้อมูล ${target.length} รายการล่าสุด</p></div>`;
+                ai.innerHTML = text;
+            }, 1000);
+        }
+
+        function checkLogin() { 
+            const uInput = document.getElementById('username').value;
+            const pInput = document.getElementById('password').value;
+            if(uInput === adminUser && pInput === adminPass){ 
+                isAdminLoggedIn = true; 
+                document.getElementById('loginSection').classList.add('hidden'); 
+                document.getElementById('adminPanel').classList.remove('hidden'); 
+                renderTable(); 
+            } else { 
+                alert("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); 
+            }
+        }
+
+        function logout() { 
+            isAdminLoggedIn = false; 
+            document.getElementById('loginSection').classList.remove('hidden'); 
+            document.getElementById('adminPanel').classList.add('hidden'); 
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        function showChangePasswordModal() {
+            document.getElementById('changePasswordModal').classList.remove('hidden');
+            document.getElementById('changePasswordModal').classList.add('flex');
+        }
+
+        function hideChangePasswordModal() {
+            document.getElementById('changePasswordModal').classList.add('hidden');
+            document.getElementById('changePasswordModal').classList.remove('flex');
+            document.getElementById('resetCodeInput').value = '';
+            document.getElementById('newUsernameInput').value = '';
+            document.getElementById('newPasswordInput').value = '';
+        }
+
+        function confirmChangePassword() {
+            const code = document.getElementById('resetCodeInput').value;
+            const newUser = document.getElementById('newUsernameInput').value;
+            const newPass = document.getElementById('newPasswordInput').value;
+            if (code !== MASTER_RESET_CODE) { alert("รหัสรีเซ็ตไม่ถูกต้อง!"); return; }
+            if (!newUser || !newPass) { alert("กรุณากรอกข้อมูลให้ครบ"); return; }
+            adminUser = newUser;
+            adminPass = newPass;
+            localStorage.setItem('ssh_admin_user', adminUser);
+            localStorage.setItem('ssh_admin_pass', adminPass);
+            alert("เปลี่ยนรหัสเรียบร้อย");
+            hideChangePasswordModal();
+        }
+
+        function renderTable() {
+            const body = document.getElementById('dataTableBody');
+            body.innerHTML = filteredData.slice(0,100).map((d, i) => `
+                <tr class="hover:bg-slate-50 transition">
+                    <td class="p-3 font-bold text-primary">${d['หมายเลขข้อร้องเรียน']||'-'}</td>
+                    <td class="p-3">${d['วันที่เกิดเหตุ']||'-'}</td>
+                    <td class="p-3">${d['แผนก']||'-'}</td>
+                    <td class="p-3"><span class="bg-slate-200 px-2 py-1 rounded text-[10px]">${classify(d).label}</span></td>
+                    <td class="p-3 leading-relaxed text-slate-600">${d['ร้องเรียน']||d['ชื่นชม']||'-'}</td>
+                </tr>`).join('');
+        }
+
+        window.onload = () => {
+            const savedData = localStorage.getItem('ssh_dashboard_data');
+            if (savedData) {
+                try {
+                    processData(JSON.parse(savedData), false);
+                    showToast("โหลดข้อมูลเดิมที่บันทึกไว้");
+                } catch(e) { processData(mockData, false); }
+            } else {
+                processData(mockData, false);
+            }
+            window.addEventListener('keydown', e => { if(e.key === "Escape") hideGlobalChart(); });
+        };
+    </script>
+</body>
+</html>
