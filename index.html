@@ -88,7 +88,7 @@
     <!-- Toast Notification -->
     <div id="toast"><i class="fa-solid fa-floppy-disk mr-2"></i> บันทึกข้อมูลล่าสุดเรียบร้อย</div>
 
-    <!-- Global Chart Overlay (Donut Chart กลางจอ) -->
+    <!-- Global Chart Overlay (Donut Chart & AI Summary) -->
     <div id="globalChartOverlay" class="fixed inset-0 z-[100] hidden items-center justify-center fade-in" onclick="if(event.target === this) hideGlobalChart()">
         <div class="bg-white rounded-3xl shadow-2xl p-8 max-w-4xl w-full border-4 border-secondary relative mx-4 flex flex-col md:flex-row gap-6 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
             
@@ -116,7 +116,7 @@
                 <div id="aiContent" class="flex-grow bg-slate-50 rounded-2xl p-5 border border-slate-200 text-sm text-slate-600 leading-relaxed overflow-y-auto min-h-[250px] max-h-[350px]">
                     <div class="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
                         <i class="fa-solid fa-wand-magic-sparkles text-3xl opacity-50"></i>
-                        <p class="italic">คลิกปุ่ม "วิเคราะห์ด้วย AI" เพื่อสรุปข้อมูลดิบ</p>
+                        <p class="italic text-center">กดปุ่ม "วิเคราะห์ข้อมูลดิบ" เพื่อให้ AI อ่านและสรุปผล</p>
                     </div>
                 </div>
 
@@ -314,7 +314,6 @@
             { "หมายเลขข้อร้องเรียน": "66-022", "วันที่เกิดเหตุ": "2023-02-20", "แผนก": "เภสัชกรรม", "ประเภทการแจ้ง": "ความรวดเร็ว บริการลบ", "ร้องเรียน": "รอรับยานานมาก เจ้าหน้าที่ทำงานช้า" }
         ];
 
-        // --- Data Persistence Helper ---
         function showToast(message) {
             const toast = document.getElementById('toast');
             toast.innerHTML = `<i class="fa-solid fa-floppy-disk mr-2"></i> ${message}`;
@@ -322,7 +321,6 @@
             setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
         }
 
-        // --- File Import ---
         function handleFileSelect(e) {
             const file = e.target.files[0];
             const extension = file.name.split('.').pop().toLowerCase();
@@ -362,10 +360,7 @@
                 try {
                     localStorage.setItem('ssh_dashboard_data', JSON.stringify(allData));
                     showToast("นำเข้าและบันทึกข้อมูลเรียบร้อยแล้ว");
-                } catch(e) {
-                    console.error("Storage full", e);
-                    alert("ไม่สามารถบันทึกข้อมูลลงเครื่องได้ (ไฟล์ใหญ่อาจเกินขีดจำกัด)");
-                }
+                } catch(e) { console.error(e); }
             }
 
             populateOptions('filterDept', 'แผนก');
@@ -373,7 +368,6 @@
             applyFilters();
         }
 
-        // --- Reset Data ---
         function resetToDemoData() {
             if(confirm("คุณแน่ใจหรือไม่ที่จะล้างข้อมูลที่นำเข้าทั้งหมด และกลับไปใช้ข้อมูลตัวอย่าง?")) {
                 localStorage.removeItem('ssh_dashboard_data');
@@ -388,20 +382,50 @@
             select.innerHTML = '<option value="">ทั้งหมด</option>' + vals.map(v => `<option value="${v}">${v}</option>`).join('');
         }
 
+        // --- FIXED LOGIC: Strict Type First ---
         function classify(d) {
-            const type = (d['ประเภทการแจ้ง'] || "").toLowerCase();
-            const praise = (d['ชื่นชม'] || "").toLowerCase();
-            const comp = (d['ร้องเรียน'] || "").toLowerCase();
-            let isPos = type.includes('บวก') || type.includes('ชม') || (praise.length > 2 && praise !== '-');
-            let isNeg = type.includes('ลบ') || type.includes('ร้อง') || (comp.length > 2 && comp !== '-');
+            const type = (d['ประเภทการแจ้ง'] || "").toLowerCase().trim();
+            const praise = (d['ชื่นชม'] || "").trim();
+            const comp = (d['ร้องเรียน'] || "").trim();
+            
+            let isPos = false;
+            let isNeg = false;
+
+            // 1. Strict check from "ประเภทการแจ้ง"
+            if (type.includes('บวก') || type.includes('ชมเชย')) {
+                isPos = true;
+            } else if (type.includes('ลบ') || type.includes('ร้องเรียน')) {
+                isNeg = true;
+            } else {
+                // 2. Fallback ONLY if type is ambiguous
+                if (praise.length > 1 && praise !== '-' && praise !== 'ไม่มี') {
+                    isPos = true;
+                } else if (comp.length > 1 && comp !== '-' && comp !== 'ไม่มี') {
+                    isNeg = true;
+                }
+            }
+            
             let cat = "อื่นๆ";
             if (type.includes('คุณภาพ')) cat = "คุณภาพบริการ";
             else if (type.includes('พฤติกรรม')) cat = "พฤติกรรมบริการ";
-            else if (type.includes('สวล') || type.includes('อาคาร') || type.includes('สถานที่')) cat = "สวล./อาคาร";
+            else if (type.includes('สวล') || type.includes('อาคาร') || type.includes('สถานที่') || type.includes('สิ่งแวดล้อม')) cat = "สวล./อาคาร";
+
             const keysMap = { "คุณภาพบริการ": ['qualPos', 'qualNeg'], "พฤติกรรมบริการ": ['behavPos', 'behavNeg'], "สวล./อาคาร": ['envPos', 'envNeg'] };
             let finalKey = 'other';
-            if (keysMap[cat]) finalKey = isPos ? keysMap[cat][0] : (isNeg ? keysMap[cat][1] : 'other');
-            return { key: finalKey, label: `${cat} (${isPos ? 'บวก' : 'ลบ'})`, isPos, catName: cat };
+            
+            // Fix: Only assign if polarity matches the key type exactly
+            if (keysMap[cat]) {
+                if (isPos) finalKey = keysMap[cat][0];
+                else if (isNeg) finalKey = keysMap[cat][1];
+            }
+
+            // Return label only if polarity is determined
+            let label = "";
+            if (isPos) label = `${cat} (บวก)`;
+            else if (isNeg) label = `${cat} (ลบ)`;
+            else label = `${cat} (อื่นๆ)`;
+
+            return { key: finalKey, label: label, isPos, isNeg, catName: cat };
         }
 
         function applyFilters() {
@@ -409,6 +433,7 @@
             const end = document.getElementById('endDate').value;
             const dept = document.getElementById('filterDept').value;
             const type = document.getElementById('filterType').value;
+
             filteredData = allData.filter(d => {
                 const dt = d['วันที่เกิดเหตุ'] || '';
                 return (!start || dt >= start) && (!end || dt <= end) && (!dept || d['แผนก'] === dept) && (!type || d['ประเภทการแจ้ง'] === type);
@@ -425,14 +450,24 @@
         function updateUI() {
             let kpis = { qualPos: 0, qualNeg: 0, behavPos: 0, behavNeg: 0, envPos: 0, envNeg: 0 };
             const typeCounts = {}, deptStats = {};
+
             filteredData.forEach(d => {
                 const res = classify(d);
+                
+                // Update KPI only if key exists in our map
                 if (kpis.hasOwnProperty(res.key)) kpis[res.key]++;
-                typeCounts[res.label] = (typeCounts[res.label] || 0) + 1;
+                
+                // Add to chart data only if valid polarity (Positive/Negative)
+                if (res.label && (res.isPos || res.isNeg)) {
+                    typeCounts[res.label] = (typeCounts[res.label] || 0) + 1;
+                }
+
                 const dep = d['แผนก'] || 'ไม่ระบุ';
                 if (!deptStats[dep]) deptStats[dep] = { pos: 0, neg: 0 };
-                res.isPos ? deptStats[dep].pos++ : deptStats[dep].neg++;
+                if (res.isPos) deptStats[dep].pos++;
+                else if (res.isNeg) deptStats[dep].neg++;
             });
+
             for (let k in kpis) document.getElementById('kpi' + k.charAt(0).toUpperCase() + k.slice(1)).innerText = kpis[k];
             renderCharts(typeCounts, deptStats);
             if (!document.getElementById('adminPanel').classList.contains('hidden')) renderTable();
@@ -440,27 +475,24 @@
 
         function exportToExcel() {
             if (!isAdminLoggedIn) {
-                alert("สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบ Admin เพื่อส่งออกข้อมูล (Admin Login Required)");
+                alert("สิทธิ์ไม่เพียงพอ: กรุณาเข้าสู่ระบบ Admin เพื่อส่งออกข้อมูล");
                 document.getElementById('loginSection').scrollIntoView({ behavior: 'smooth' });
                 return;
             }
-            if (!filteredData || filteredData.length === 0) {
-                alert("ไม่มีข้อมูลสำหรับส่งออก (No data to export)");
-                return;
-            }
+            if (!filteredData.length) { alert("ไม่มีข้อมูล"); return; }
+            
             const exportData = filteredData.map(d => ({
                 "ID": d['หมายเลขข้อร้องเรียน'] || '-',
-                "วันที่เกิดเหตุ": d['วันที่เกิดเหตุ'] || '-',
+                "วันที่": d['วันที่เกิดเหตุ'] || '-',
                 "แผนก": d['แผนก'] || '-',
-                "ประเภทการแจ้ง": d['ประเภทการแจ้ง'] || '-',
-                "รายละเอียด (ร้องเรียน/ชื่นชม)": d['ร้องเรียน'] || d['ชื่นชม'] || '-',
-                "กลุ่มงานตอบ": d['กลุ่มงานตอบ'] || '-'
+                "ประเภท": d['ประเภทการแจ้ง'] || '-',
+                "ร้องเรียน": d['ร้องเรียน'] || '-',
+                "ชื่นชม": d['ชื่นชม'] || '-'
             }));
             const ws = XLSX.utils.json_to_sheet(exportData);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Complaint_Data");
-            const dateStr = new Date().toISOString().slice(0,10);
-            XLSX.writeFile(wb, `Srisangworn_Complaint_Data_${dateStr}.xlsx`);
+            XLSX.writeFile(wb, `Complaint_Data_${new Date().toISOString().slice(0,10)}.xlsx`);
         }
 
         function renderCharts(typeData, deptData) {
@@ -477,6 +509,7 @@
                 },
                 options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
+
             const sortedDepts = Object.entries(deptData).sort((a,b) => (b[1].pos + b[1].neg) - (a[1].pos + a[1].neg)).slice(0, 10);
             if (deptChartInstance) deptChartInstance.destroy();
             deptChartInstance = new Chart(document.getElementById('deptChart'), {
@@ -491,10 +524,7 @@
                 options: { 
                     responsive: true, maintainAspectRatio: false, 
                     scales: { y: { ticks: { callback: v => Math.abs(v) } } },
-                    plugins: { 
-                        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${Math.abs(c.raw)}` } },
-                        datalabels: { color: '#333', font: { weight: 'bold' }, formatter: v => v === 0 ? '' : Math.abs(v) }
-                    }
+                    plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label}: ${Math.abs(c.raw)}` } } }
                 }
             });
         }
@@ -505,9 +535,13 @@
             const deptCounts = {};
             target.forEach(d => { deptCounts[d['แผนก'] || 'ไม่ระบุ'] = (deptCounts[d['แผนก'] || 'ไม่ระบุ'] || 0) + 1; });
             const topStats = Object.entries(deptCounts).sort((a,b) => b[1]-a[1]).slice(0,8);
+
             document.getElementById('overlayTitle').innerText = title;
+            document.getElementById('aiContent').innerHTML = `<div class="flex flex-col items-center justify-center h-40 text-slate-400 gap-2"><i class="fa-solid fa-wand-magic-sparkles text-3xl opacity-50"></i><p class="italic text-center">กดปุ่ม "วิเคราะห์ข้อมูลดิบ" เพื่อสรุป</p></div>`;
+            
             document.getElementById('globalChartOverlay').classList.remove('hidden');
             document.getElementById('globalChartOverlay').classList.add('flex');
+            
             if (globalChartInstance) globalChartInstance.destroy();
             globalChartInstance = new Chart(document.getElementById('overlayCanvas'), {
                 type: 'doughnut',
@@ -520,13 +554,7 @@
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { position: 'right', labels: { font: { family: 'Prompt', size: 10 } } },
-                        datalabels: { formatter: (v, ctx) => {
-                            const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                            return ((v / sum) * 100).toFixed(0) + "%";
-                        }, color: '#fff', font: { weight: 'bold', size: 10 } }
-                    },
+                    plugins: { legend: { position: 'right', labels: { font: { family: 'Prompt', size: 10 } } } },
                     cutout: '65%'
                 }
             });
@@ -537,31 +565,109 @@
             document.getElementById('globalChartOverlay').classList.remove('flex');
         }
 
+        // --- AI ANALYZE FUNCTION (Soft & Contextual) ---
+        function analyzeTextSoftly(texts, isPositive) {
+            const topicMap = {
+                // Negative (Soft translations)
+                'speech_bad': { keywords: ["พูดไม่ดี", "ตะคอก", "เสียงดัง", "น้ำเสียง", "ไม่สุภาพ", "พูดจา"], label: "ด้านการสื่อสาร", phrase: "ควรปรับปรุงเรื่องน้ำเสียงและถ้อยคำให้สุภาพนุ่มนวล" },
+                'service_slow': { keywords: ["ช้า", "นาน", "ล่าช้า", "รอนาน"], label: "ด้านความรวดเร็ว", phrase: "ควรปรับปรุงความรวดเร็วในการให้บริการและลดเวลารอคอย" },
+                'service_bad': { keywords: ["ไม่สนใจ", "ไม่ดู", "แย่", "ไล่", "เมิน"], label: "ด้านการดูแล", phrase: "ควรเพิ่มความเอาใจใส่และดูแลผู้รับบริการให้ทั่วถึง" },
+                'env_bad': { keywords: ["ร้อน", "สกปรก", "เหม็น", "ยุง", "ไม่มี", "พัง"], label: "ด้านสถานที่", phrase: "ควรดูแลความสะอาดและความพร้อมของสิ่งอำนวยความสะดวก" },
+                
+                // Positive
+                'speech_good': { keywords: ["พูดดี", "พูดเพราะ", "สุภาพ", "น่ารัก", "ยิ้มแย้ม"], label: "ด้านการสื่อสาร", phrase: "โดดเด่นเรื่องวาจาสุภาพ ยิ้มแย้ม และเป็นกันเอง" },
+                'service_fast': { keywords: ["รวดเร็ว", "เร็ว", "ไว"], label: "ด้านความรวดเร็ว", phrase: "โดดเด่นเรื่องการให้บริการที่รวดเร็วทันใจ" },
+                'service_good': { keywords: ["บริการดี", "เอาใจใส่", "ดูแลดี", "ช่วยเหลือ", "ดีมาก"], label: "ด้านการดูแล", phrase: "โดดเด่นเรื่องความเอาใจใส่และการดูแลอย่างดีเยี่ยม" }
+            };
+
+            const stats = {};
+            texts.forEach(text => {
+                for (const [key, config] of Object.entries(topicMap)) {
+                    // Check if category matches current polarity
+                    const isCatPositive = !key.includes('bad') && !key.includes('slow');
+                    if (isPositive !== isCatPositive) continue; 
+
+                    if (config.keywords.some(kw => text.includes(kw))) {
+                        stats[key] = (stats[key] || 0) + 1;
+                    }
+                }
+            });
+
+            const topCategories = Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 2); 
+
+            if (topCategories.length > 0) {
+                const phrases = topCategories.map(([key, count]) => `<b>${topicMap[key].label}</b>`);
+                const softSentences = topCategories.map(([key, count]) => topicMap[key].phrase).join(" และ ");
+                return `<div class="mt-1 text-slate-600">ประเด็นหลัก: ${phrases.join(", ")}</div><div class="mt-1 text-slate-500 italic">"${softSentences}"</div>`;
+            } else {
+                return `<div class="mt-1 text-slate-500 italic">"พบประเด็นทั่วไป (ไม่ตรงกับคำสำคัญหลัก)"</div>`;
+            }
+        }
+
         function generateAISummary() {
-            const ai = document.getElementById('aiContent');
-            ai.innerHTML = '<div class="flex flex-col items-center justify-center h-full"><i class="fa-solid fa-spinner fa-spin text-primary text-3xl mb-2"></i><p>กำลังอ่านข้อมูลดิบและวิเคราะห์ประเด็น...</p></div>';
+            const aiContent = document.getElementById('aiContent');
+            aiContent.innerHTML = '<div class="text-center mt-8"><i class="fa-solid fa-spinner fa-spin text-secondary text-2xl"></i><p class="text-xs text-slate-400 mt-2">กำลังอ่านข้อมูลดิบและวิเคราะห์...</p></div>';
+
             setTimeout(() => {
-                const target = filteredData.filter(d => classify(d).key === currentKpiKey);
-                if (!target.length) return ai.innerHTML = "<p class='text-center mt-10'>ไม่พบข้อมูลวิเคราะห์</p>";
-                const stats = {};
-                target.forEach(d => { const dep = d['แผนก'] || 'ไม่ระบุ'; stats[dep] = (stats[dep] || 0) + 1; });
-                const sorted = Object.entries(stats).sort((a,b) => b[1]-a[1]);
-                let text = `<div class="space-y-4 ai-typing">`;
-                text += `<p class="font-bold text-primary underline">สรุปประเด็นสำคัญประจำหมวด</p>`;
-                sorted.slice(0, 2).forEach(([name, count], idx) => {
-                    const row = target.find(r => r['แผนก'] === name);
-                    const rawMsg = (row['ร้องเรียน'] || row['ชื่นชม'] || "").toLowerCase();
-                    let insight = "โดดเด่นในภาพรวมการบริการ";
-                    if(rawMsg.includes("พูด")) insight = "ควรปรับปรุงเรื่องน้ำเสียงและถ้อยคำในการสื่อสารให้สุภาพยิ่งขึ้น";
-                    if(rawMsg.includes("ช้า") || rawMsg.includes("นาน")) insight = "ควรปรับปรุงระบบการทำงานเพื่อลดระยะเวลารอคอยของผู้รับบริการ";
-                    if(rawMsg.includes("ดีมาก") || rawMsg.includes("ขอบคุณ")) insight = "โดดเด่นเรื่องความใส่ใจและจริยธรรมในการดูแลผู้ป่วยอย่างดีเยี่ยม";
-                    if(rawMsg.includes("ร้อน") || rawMsg.includes("สกปรก")) insight = "ควรปรับปรุงความสะอาดและสภาพแวดล้อมให้พร้อมใช้งานเสมอ";
-                    text += `<div><p class="font-bold text-secondary">อันดับที่ ${idx+1}: ${name} (${count} เรื่อง)</p>`;
-                    text += `<p class="text-slate-500 italic mt-1">• ${insight}</p></div>`;
+                let targetData = filteredData.filter(d => classify(d).key === currentKpiKey);
+                
+                if (targetData.length === 0) {
+                    aiContent.innerHTML = '<p class="text-red-400 text-center mt-10">ไม่พบข้อมูลสำหรับหมวดหมู่นี้ในช่วงเวลาที่เลือก</p>';
+                    return;
+                }
+
+                const classification = classify(targetData[0]); 
+                const isPositiveKPI = classification.isPos;
+                const textColumn = isPositiveKPI ? 'ชื่นชม' : 'ร้องเรียน';
+
+                const deptCounts = {};
+                const deptTexts = {}; 
+
+                targetData.forEach(d => {
+                    const dep = d['แผนก'] || 'ไม่ระบุ';
+                    deptCounts[dep] = (deptCounts[dep] || 0) + 1;
+                    
+                    if (!deptTexts[dep]) deptTexts[dep] = [];
+                    let rawText = d[textColumn];
+                    if (rawText && rawText.length > 2 && rawText !== '-') {
+                        // Mask names privacy
+                        rawText = rawText.replace(/(คุณ|นาย|นาง|นส\.|ดร\.|นพ\.|พญ\.|เจ้าหน้าที่|พยาบาล|หมอ)\s*[ก-๙]+/g, '$1[ระบุชื่อ]');
+                        deptTexts[dep].push(rawText);
+                    }
                 });
-                text += `<p class="text-[10px] text-slate-400 mt-4 border-t pt-2">วิเคราะห์จากฐานข้อมูล ${target.length} รายการล่าสุด</p></div>`;
-                ai.innerHTML = text;
-            }, 1000);
+
+                const sortedDepts = Object.entries(deptCounts).sort((a,b) => b[1] - a[1]);
+                const total = targetData.length;
+                
+                let html = `<div class="typing-effect text-sm space-y-4">`;
+                html += `<div class="flex items-center gap-2 mb-2"><span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">สรุปภาพรวม</span> <span class="text-slate-500 text-xs">พบทั้งหมด ${total} เรื่อง</span></div>`;
+
+                const topN = Math.min(sortedDepts.length, 2);
+                for (let i = 0; i < topN; i++) {
+                    const deptName = sortedDepts[i][0];
+                    const count = sortedDepts[i][1];
+                    const pct = ((count / total) * 100).toFixed(1);
+                    const texts = deptTexts[deptName] || [];
+                    
+                    const analysisHtml = analyzeTextSoftly(texts, isPositiveKPI);
+
+                    html += `<div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition">`;
+                    html += `<div class="flex justify-between items-center mb-2 border-b border-slate-100 pb-2">`;
+                    html += `<span class="font-bold text-primary text-base"><span class="text-secondary mr-2">#${i+1}</span> ${deptName}</span>`;
+                    html += `<span class="text-xs bg-slate-100 px-2 py-1 rounded-full text-slate-500 font-bold">${count} เรื่อง (${pct}%)</span>`;
+                    html += `</div>`;
+                    html += `<div class="text-xs leading-relaxed mb-2">${analysisHtml}</div>`;
+                    html += `</div>`;
+                }
+                
+                if (sortedDepts.length > 2) {
+                   html += `<p class="text-xs text-slate-400 mt-2 text-center border-t pt-2">และแผนกอื่นๆ อีก ${sortedDepts.length - 2} แผนก</p>`;
+                }
+                
+                html += `</div>`;
+                aiContent.innerHTML = html;
+
+            }, 800); 
         }
 
         function checkLogin() { 
@@ -572,9 +678,7 @@
                 document.getElementById('loginSection').classList.add('hidden'); 
                 document.getElementById('adminPanel').classList.remove('hidden'); 
                 renderTable(); 
-            } else { 
-                alert("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); 
-            }
+            } else { alert("รหัสผ่านไม่ถูกต้อง"); }
         }
 
         function logout() { 
@@ -585,36 +689,22 @@
             document.getElementById('password').value = '';
         }
 
-        function showChangePasswordModal() {
-            document.getElementById('changePasswordModal').classList.remove('hidden');
-            document.getElementById('changePasswordModal').classList.add('flex');
-        }
-
-        function hideChangePasswordModal() {
-            document.getElementById('changePasswordModal').classList.add('hidden');
-            document.getElementById('changePasswordModal').classList.remove('flex');
-            document.getElementById('resetCodeInput').value = '';
-            document.getElementById('newUsernameInput').value = '';
-            document.getElementById('newPasswordInput').value = '';
-        }
-
+        function showChangePasswordModal() { document.getElementById('changePasswordModal').classList.remove('hidden'); document.getElementById('changePasswordModal').classList.add('flex'); }
+        function hideChangePasswordModal() { document.getElementById('changePasswordModal').classList.add('hidden'); document.getElementById('changePasswordModal').classList.remove('flex'); }
         function confirmChangePassword() {
             const code = document.getElementById('resetCodeInput').value;
             const newUser = document.getElementById('newUsernameInput').value;
             const newPass = document.getElementById('newPasswordInput').value;
             if (code !== MASTER_RESET_CODE) { alert("รหัสรีเซ็ตไม่ถูกต้อง!"); return; }
             if (!newUser || !newPass) { alert("กรุณากรอกข้อมูลให้ครบ"); return; }
-            adminUser = newUser;
-            adminPass = newPass;
-            localStorage.setItem('ssh_admin_user', adminUser);
-            localStorage.setItem('ssh_admin_pass', adminPass);
-            alert("เปลี่ยนรหัสเรียบร้อย");
-            hideChangePasswordModal();
+            adminUser = newUser; adminPass = newPass;
+            localStorage.setItem('ssh_admin_user', adminUser); localStorage.setItem('ssh_admin_pass', adminPass);
+            alert("เปลี่ยนรหัสเรียบร้อย"); hideChangePasswordModal();
         }
 
         function renderTable() {
             const body = document.getElementById('dataTableBody');
-            body.innerHTML = filteredData.slice(0,100).map((d, i) => `
+            body.innerHTML = filteredData.slice(0,100).map(d => `
                 <tr class="hover:bg-slate-50 transition">
                     <td class="p-3 font-bold text-primary">${d['หมายเลขข้อร้องเรียน']||'-'}</td>
                     <td class="p-3">${d['วันที่เกิดเหตุ']||'-'}</td>
@@ -626,14 +716,8 @@
 
         window.onload = () => {
             const savedData = localStorage.getItem('ssh_dashboard_data');
-            if (savedData) {
-                try {
-                    processData(JSON.parse(savedData), false);
-                    showToast("โหลดข้อมูลเดิมที่บันทึกไว้");
-                } catch(e) { processData(mockData, false); }
-            } else {
-                processData(mockData, false);
-            }
+            if (savedData) { try { processData(JSON.parse(savedData), false); showToast("โหลดข้อมูลเดิมที่บันทึกไว้"); } catch(e) { processData(mockData, false); } } 
+            else { processData(mockData, false); }
             window.addEventListener('keydown', e => { if(e.key === "Escape") hideGlobalChart(); });
         };
     </script>
